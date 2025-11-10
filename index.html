@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Roaring Knight — Stress Demo</title>
+<style>
+  :root{--bg:#0a0a0f;--fg:#f2f2f2;--accent:#ffcc00;}
+  html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--fg);}
+  .wrap{min-height:100%;display:flex;align-items:center;justify-content:center;padding:24px;}
+  .card{width:100%;max-width:880px;background:rgba(255,255,255,0.02);padding:20px;border-radius:12px;
+    border:1px solid rgba(255,255,255,0.03);box-shadow:0 6px 30px rgba(0,0,0,0.6);}
+  h1{margin:0 0 6px;font-size:20px}
+  p.small{color:rgba(255,255,255,0.7);margin:6px 0 12px}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  button{background:transparent;border:1px solid rgba(255,255,255,0.12);padding:8px 10px;
+    border-radius:8px;color:var(--fg);cursor:pointer}
+  button.warn{border-color:var(--accent);color:var(--accent)}
+  input[type=range]{width:220px}
+  #rizz{display:none;max-width:100%;margin-top:12px;border-radius:8px}
+  #grid{position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:9999;overflow:hidden}
+  .tile{position:absolute;width:32px;height:32px;opacity:0.9;transform-origin:center}
+  #status{margin-top:10px;color:rgba(255,255,255,0.75);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card" id="card">
+    <h1>Secret — Demo</h1>
+    <p class="small">Enter password to continue (case-sensitive).</p>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <input id="pw" placeholder="Password"
+             style="flex:1;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);
+             background:transparent;color:var(--fg)"/>
+      <button id="unlock">Unlock</button>
+    </div>
+
+    <div id="after" style="display:none;margin-top:14px;">
+      <p class="small">Confirm dialog will appear 50 times — cancel early if desired.</p>
+      <div class="controls">
+        <label class="small">Intensity:
+          <input id="intens" type="range" min="1" max="10" value="6"/>
+        </label>
+        <label class="small">DOM elements:
+          <input id="domcount" type="range" min="0" max="3000" step="50" value="800"/>
+        </label>
+        <label class="small">Worker multiplier:
+          <input id="workerMul" type="range" min="0" max="8" value="4"/>
+        </label>
+        <button id="start" class="warn">Start Demo</button>
+        <button id="stop">Stop</button>
+      </div>
+      <div id="status">Idle.</div>
+      <img id="rizz" src="rizz.gif" alt="rizz gif"/>
+    </div>
+  </div>
+</div>
+<div id="grid"></div>
+
+<script>
+(() => {
+  const PASSWORD = 'AYSE123';
+  const MAX_CONFIRMS = 50;
+
+  const pwInput = document.getElementById('pw');
+  const unlockBtn = document.getElementById('unlock');
+  const after = document.getElementById('after');
+  const startBtn = document.getElementById('start');
+  const stopBtn = document.getElementById('stop');
+  const status = document.getElementById('status');
+  const rizz = document.getElementById('rizz');
+  const intens = document.getElementById('intens');
+  const domcount = document.getElementById('domcount');
+  const workerMul = document.getElementById('workerMul');
+  const grid = document.getElementById('grid');
+
+  let workerPool=[], domNodes=[], running=false;
+
+  unlockBtn.onclick=()=>{
+    if(pwInput.value===PASSWORD){
+      after.style.display='block';
+      pwInput.disabled=true; unlockBtn.disabled=true;
+      status.textContent='Password OK. Ready.';
+    }else alert('Wrong password.');
+  };
+
+  function askConfirms(){
+    for(let i=1;i<=MAX_CONFIRMS;i++){
+      if(!confirm(`Do you wanna know who is the roaring knight? (${i}/${MAX_CONFIRMS})`))return false;
+    } return true;
+  }
+
+  function spawnDOM(n,intensity){
+    const w=window.innerWidth,h=window.innerHeight,created=[];
+    for(let i=0;i<n;i++){
+      const d=document.createElement('div');
+      d.className='tile';
+      d.style.left=Math.random()*w+'px';
+      d.style.top=Math.random()*h+'px';
+      d.style.width=(8+intensity*4)+'px';
+      d.style.height=(8+intensity*4)+'px';
+      d.style.background=`rgba(${Math.random()*255},${Math.random()*255},${Math.random()*255},0.9)`;
+      grid.appendChild(d); created.push(d);
+      let vx=(Math.random()-0.5)*intensity,vy=(Math.random()-0.5)*intensity,rot=(Math.random()-0.5)*2;
+      (function anim(el,vx,vy,rot){
+        if(!running)return;
+        const r=el.getBoundingClientRect();
+        let x=r.left+vx,y=r.top+vy;
+        if(x<-50)x=w+50;if(x>w+50)x=-50;if(y<-50)y=h+50;if(y>h+50)y=-50;
+        el.style.left=x+'px';el.style.top=y+'px';
+        const a=(parseFloat(el.dataset.r||'0')+rot);el.style.transform=`rotate(${a}deg)`;el.dataset.r=a;
+        requestAnimationFrame(()=>anim(el,vx,vy,rot));
+      })(d,vx,vy,rot);
+    }return created;
+  }
+
+  function startWorkers(multiplier,intensity){
+    const concurrency=navigator.hardwareConcurrency||4;
+    const count=Math.min(32,Math.max(1,Math.floor(concurrency*multiplier)));
+    const blob=new Blob([`
+      let stop=false;
+      onmessage=e=>{
+        if(e.data==='stop'){stop=true;return;}
+        const intensity=e.data.intensity||5;
+        function loop(){
+          if(stop)return;
+          let s=0;for(let i=0;i<200000*intensity;i++){s+=Math.sqrt(i)%7;}
+          postMessage({tick:1});
+          setTimeout(loop,0);
+        }loop();
+      };
+    `],{type:'application/javascript'});
+    const url=URL.createObjectURL(blob);
+    for(let i=0;i<count;i++){
+      const w=new Worker(url);
+      w.onmessage=()=>{};
+      w.postMessage({intensity});
+      workerPool.push(w);
+    }
+  }
+
+  function stopAll(){
+    running=false;
+    workerPool.forEach(w=>{try{w.postMessage('stop');w.terminate();}catch{}});
+    workerPool=[];
+    domNodes.forEach(d=>d.remove());
+    domNodes=[];grid.innerHTML='';
+    rizz.style.display='none';
+    status.textContent='Stopped.';
+  }
+
+  startBtn.onclick=()=>{
+    if(running)return;
+    if(!askConfirms()){status.textContent='Cancelled.';return;}
+    rizz.style.display='block';
+    running=true; status.textContent='Running indefinitely. Use Stop to end.';
+    domNodes=spawnDOM(parseInt(domcount.value,10),parseInt(intens.value,10));
+    startWorkers(parseFloat(workerMul.value),parseInt(intens.value,10));
+  };
+  stopBtn.onclick=stopAll;
+})();
+</script>
+</body>
+</html>
